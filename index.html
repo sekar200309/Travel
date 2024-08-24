@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather and Nearby Places</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            height: 400px;
+            width: 100%;
+        }
+        #temperature {
+            padding: 10px;
+            font-size: 18px;
+        }
+        #hotel-options, #restaurant-options {
+            padding: 10px;
+            display: none;
+        }
+        h2 {
+            margin-top: 0;
+        }
+        ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        li {
+            padding: 5px 0;
+            cursor: pointer;
+            color: blue;
+            text-decoration: underline;
+        }
+        li:hover {
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="temperature">Loading weather data...</div>
+    <div id="hotel-options">
+        <h2>Nearby Hotels</h2>
+        <ul id="hotel-list"></ul>
+    </div>
+    <div id="restaurant-options">
+        <h2>Nearby Restaurants</h2>
+        <ul id="restaurant-list"></ul>
+    </div>
+    <div id="map"></div>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // Function to fetch weather data based on user's location
+        function fetchWeatherData(lat, lon) {
+            const url = `https://api.met.no/weatherapi/locationforecast/2.0/classic?lat=${lat}&lon=${lon}&altitude=90`;
+
+            fetch(url)
+                .then(response => response.text())
+                .then(data => {
+                    // Parse the XML data
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(data, 'application/xml');
+                    
+                    // Extract data from the XML document
+                    const temperature = parseFloat(xmlDoc.querySelector('temperature').getAttribute('value'));
+
+                    // Display the temperature
+                    document.getElementById('temperature').textContent = `Temperature: ${temperature}°C`;
+
+                    // Determine if the weather is good for an outing
+                    if (temperature >= 15 && temperature <= 25) {
+                        document.getElementById('temperature').textContent += "\nIt's perfect for an outing!";
+                    } else {
+                        document.getElementById('temperature').textContent += "\nNot ideal for an outing. Would you like to find nearby hotels or restaurants?";
+
+                        // Show hotel and restaurant options
+                        document.getElementById('hotel-options').style.display = 'block';
+                        document.getElementById('restaurant-options').style.display = 'block';
+
+                        // Fetch nearby hotels and restaurants
+                        fetchNearbyPlaces(lat, lon, 'hotel');
+                        fetchNearbyPlaces(lat, lon, 'restaurant');
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // Function to fetch nearby places from Overpass API
+        function fetchNearbyPlaces(lat, lon, type) {
+            const radius = 5000; // Radius in meters
+            const typeMapping = {
+                'hotel': 'tourism=hotel',
+                'restaurant': 'amenity=restaurant'
+            };
+            const query = typeMapping[type];
+            const url = `https://overpass-api.de/api/interpreter?data=[out:json];node(${lat - radius / 111111},${lon - radius / 111111},${lat + radius / 111111},${lon + radius / 111111})[${query}];out;`;
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.elements.length > 0) {
+                        const placesList = document.getElementById(`${type}-list`);
+                        placesList.innerHTML = '';
+
+                        data.elements.forEach(place => {
+                            const listItem = document.createElement('li');
+                            listItem.textContent = `${place.tags.name || 'Unnamed'} - ${place.tags.address || 'No address'}`;
+                            listItem.onclick = () => showDirections(lat, lon, place.lat, place.lon);
+                            placesList.appendChild(listItem);
+                        });
+                    } else {
+                        document.getElementById(`${type}-list`).textContent = `No ${type} found nearby.`;
+                    }
+                })
+                .catch(error => console.error('Error fetching nearby places:', error));
+        }
+
+        // Function to show directions using Google Maps Directions API
+        function showDirections(startLat, startLon, endLat, endLon) {
+            const directionsUrl = `https://www.google.com/maps/dir/?api=1&origin=${startLat},${startLon}&destination=${endLat},${endLon}`;
+            window.open(directionsUrl, '_blank');
+        }
+
+        // Initialize the Leaflet map
+        function initializeMap(lat, lon) {
+            const map = L.map('map').setView([lat, lon], 13); // Set the map view to user's location
+
+            // Add a tile layer (OSM)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            // Add a marker at the user's location
+            L.marker([lat, lon]).addTo(map)
+                .bindPopup('You are here.')
+                .openPopup();
+        }
+
+        // Get user's location
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+
+                // Fetch weather data
+                fetchWeatherData(lat, lon);
+
+                // Initialize map with user's location
+                initializeMap(lat, lon);
+            }, error => {
+                console.error('Geolocation error:', error);
+                document.getElementById('temperature').textContent = 'Unable to retrieve your location';
+            });
+        } else {
+            document.getElementById('temperature').textContent = 'Geolocation is not supported by this browser';
+        }
+    </script>
+</body>
+</html>
